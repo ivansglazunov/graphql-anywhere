@@ -37,6 +37,8 @@ export type Resolver = (
 export type VariableMap = { [name: string]: any };
 
 export type ResultMapper = (values: {[fieldName: string]: any}, rootValue: any) => any;
+export type ResultHandlerExecute = (result: any) => any;
+export type ResultHandler = (result: any, execute: ResultHandlerExecute) => any;
 export type FragmentMatcher = (rootValue: any, typeCondition: string, context: any) => boolean;
 
 export type ExecContext = {
@@ -46,6 +48,7 @@ export type ExecContext = {
   resultMapper: ResultMapper;
   resolver: Resolver;
   fragmentMatcher: FragmentMatcher;
+  resultHandler: ResultHandler;
 };
 
 export type ExecInfo = {
@@ -57,6 +60,11 @@ export type ExecInfo = {
 export type ExecOptions = {
   resultMapper?: ResultMapper;
   fragmentMatcher?: FragmentMatcher;
+  resultHandler?: ResultHandler;
+};
+
+const defaultResultHandler: ResultHandler = (result, execute: ResultHandlerExecute) => {
+  return execute(result);
 };
 
 // Based on graphql function from graphql-js:
@@ -86,6 +94,8 @@ export function graphql(
   // Default matcher always matches all fragments
   const fragmentMatcher = execOptions.fragmentMatcher || (() => true);
 
+  const resultHandler = execOptions.resultHandler || defaultResultHandler;
+
   const execContext: ExecContext = {
     fragmentMap,
     contextValue,
@@ -93,6 +103,7 @@ export function graphql(
     resultMapper,
     resolver,
     fragmentMatcher,
+    resultHandler,
   };
 
   return executeSelectionSet(
@@ -173,27 +184,12 @@ function executeSelectionSet(
   return result;
 }
 
-function executeField(
+function executeResultField(
+  result: any,
   field: FieldNode,
   rootValue: any,
   execContext: ExecContext,
 ): any {
-  const {
-    variableValues: variables,
-    contextValue,
-    resolver,
-  } = execContext;
-
-  const fieldName = field.name.value;
-  const args = argumentsObjectFromField(field, variables);
-
-  const info: ExecInfo = {
-    isLeaf: !field.selectionSet,
-    resultKey: resultKeyNameFromField(field),
-    directives: getDirectiveInfoFromField(field, variables),
-  };
-
-  const result = resolver(fieldName, rootValue, args, contextValue, info);
 
   // Handle all scalar types here
   if (!field.selectionSet) {
@@ -217,6 +213,36 @@ function executeField(
     result,
     execContext,
   );
+}
+
+function executeField(
+  field: FieldNode,
+  rootValue: any,
+  execContext: ExecContext,
+): any {
+  const {
+    variableValues: variables,
+    contextValue,
+    resolver,
+  } = execContext;
+
+  const fieldName = field.name.value;
+  const args = argumentsObjectFromField(field, variables);
+
+  const info: ExecInfo = {
+    isLeaf: !field.selectionSet,
+    resultKey: resultKeyNameFromField(field),
+    directives: getDirectiveInfoFromField(field, variables),
+  };
+
+  const result = execContext.resultHandler(
+    resolver(fieldName, rootValue, args, contextValue, info),
+    (handledResult) => {
+      return executeResultField(handledResult, field, rootValue, execContext);
+    },
+  );
+
+  return result;
 }
 
 function executeSubSelectedArray(

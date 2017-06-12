@@ -10,6 +10,7 @@ require('source-map-support').install();
 
 import './anywhere';
 import './mapper';
+import './handler';
 import './matcher';
 import './directives';
 import './utilities';
